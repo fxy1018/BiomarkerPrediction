@@ -1,0 +1,175 @@
+---
+title: "ML_Project_Different_Preprocessing_Method"
+author: "Xueyi Fan"
+date: "August 7, 2016"
+output: html_document
+---
+
+Using the different background correcting and normaliztion method not RMA
+
+Here I will use quntile normalization and piler to normalize my data and compare the result with my original result
+
+#Pre-processing the affymetrix data of GSE15471
+```{r}
+library("affy")
+library("limma")
+library("plier")
+library("genefilter")
+library("hgu133plus2.db")
+library("rgl")
+
+#GSE15471 deatset
+#Microdata need to do background correct and normalization, here I use RMA to normalized each dataset
+pathway <- paste("/Users/fanxueyi/Documents/NEU Bioinformatics/DSCS6030_Intro_Data_Mining:Machine_Learing/Project/DATA/","GSE15471",sep="")
+setwd(pathway)
+data2 <- ReadAffy()
+eset.d2<- exprs(data2)
+annotation(data2)
+
+
+#log-scale transform data
+qx <- as.numeric(quantile(eset.d2, c(0., 0.25, 0.5, 0.75, 0.99, 1.0), na.rm=T))
+LogC <- (qx[5] > 100) ||
+  (qx[6]-qx[1] > 50 && qx[2] > 0) ||
+  (qx[2] > 0 && qx[2] < 1 && qx[4] > 1 && qx[4] < 2)
+if (LogC) { eset.d2[which(eset.d2 <= 0)] <- NaN
+exprs(data2) <- log2(eset.d2) }
+
+#Using Plier algorithm to preprocess the raw data
+
+#correct the background and use PLIER to normalize data 
+data2 <- bg.correct(data2, method = "mas")
+data2.plier <- justPlier(eset = data2,normalize = T, norm.type="together")
+
+#normalizing data with RMA
+data2.rma <- rma(data2)
+
+#factor: 0 stands for normal tissue, 1 stands for tumor
+gsms.d2 <- paste0("00000000000000000000000000000000000000011111111111",
+        "1111111111111111111111111111")
+sml.d2 <- c()
+for (i in 1:nchar(gsms.d2)) { sml.d2[i] <- substr(gsms.d2,i,i) }
+fl2 <- as.factor(sml.d2)
+
+#reorganize the expression data of plier-data
+fl2 <- as.factor(c(rep(0,39),rep(1,39)))
+lables <- c("Control", "Cancer")
+eset2.d2.plier<- exprs(data2.plier)
+head(eset2.d2.plier)
+normal.d2.plier<- eset2.d2.plier[,which(fl2==0)]
+tumor.d2.plier <- eset2.d2.plier[,which(fl2==1)]
+
+#reorganize the expression data of rma-data
+eset2.d2.rma<- exprs(data2.rma)
+summary(eset2.d2.plier[,1])
+head(eset2.d2.rma)
+normal.d2.rma<- eset2.d2.rma[,which(fl2==0)]
+tumor.d2.rma <- eset2.d2.rma[,which(fl2==1)]
+
+
+#calculate the intra group variance
+CV <- function(x) {
+  x.mean <- mean(x)
+  x.sd <- sd(x)
+  (x.sd/x.mean)
+}
+
+#cv of plier method 
+normal.cv.plier <- apply(normal.d2.plier, 2, CV)
+tumor.cv.plier <- apply(tumor.d2.plier,2,CV)
+data.cv.plier <- data.frame(N = normal.cv.plier, T=tumor.cv.plier)
+
+#cv of rma method
+normal.cv.rma <- apply(normal.d2.rma, 2, CV)
+tumor.cv.rma <- apply(tumor.d2.rma,2, CV)
+data.cv.rma <- data.frame(N = normal.cv.rma, T=tumor.cv.rma)
+
+
+data.cv <- data.frame(PLIER = data.cv.plier, RMA = data.cv.rma)
+dev.new()
+boxplot(data.cv,col=c("lightblue",0,"red",0),ylab= "coefficient of variance", main="PLIER vs. RMA", las=2)
+dev.off()
+ 
+eset3.d2 <- data.frame(normal.d2.plier, tumor.d2.plier)
+palette(value=rainbow(2))
+boxplot(eset3.d2, main=paste("Boxplot of processing data GSE15471 using PLIER"),col=c(rep("lightblue",39), rep(0,39)), outline=FALSE,las=2)
+
+```
+
+#Pre-processing the affymetrix data of GSE71989
+```{r}
+
+#GSE71989 deatset
+#Microdata need to do background correct and normalization, here I use RMA to normalized each dataset
+pathway <- paste("/Users/fanxueyi/Documents/NEU Bioinformatics/DSCS6030_Intro_Data_Mining:Machine_Learing/Project/DATA/","GSE71989",sep="")
+setwd(pathway)
+data1 <- ReadAffy()
+eset<- exprs(data1)
+annotation(data1)
+
+#log-scale transform data
+qx <- as.numeric(quantile(eset, c(0., 0.25, 0.5, 0.75, 0.99, 1.0), na.rm=T))
+LogC <- (qx[5] > 100) ||
+  (qx[6]-qx[1] > 50 && qx[2] > 0) ||
+  (qx[2] > 0 && qx[2] < 1 && qx[4] > 1 && qx[4] < 2)
+if (LogC) { eset[which(eset <= 0)] <- NaN
+exprs(data1) <- log2(eset) }
+
+#correct the background and use PLIER to normalize data 
+data1 <- bg.correct(data1, method = "mas")
+data1.plier <- justPlier(eset = data1,normalize = T, norm.type="together")
+
+#normalizing data with RMA
+data1.rma <- rma(data1)
+
+#factor: 0 stands for normal tissue, 1 stands for tumor
+gsms <- paste0("0000000011111111111111")
+sml <- c()
+for (i in 1:nchar(gsms)) { sml[i] <- substr(gsms,i,i) }
+fl1 <- as.factor(sml)
+
+#reorganize the expression data
+fl1 <- as.factor(c(rep(0,8),rep(1,14)))
+lables <- c("Control", "Cancer")
+eset1.d1.plier<- exprs(data1.plier)
+head(eset1.d1.plier)
+normal.d1.plier<- eset1.d1.plier[,which(fl1==0)]
+tumor.d1.plier <- eset1.d1.plier[,which(fl1==1)]
+
+#reorganize the expression data of rma-data
+eset1.d1.rma<- exprs(data1.rma)
+summary(eset1.d1.plier[,1])
+head(eset1.d1.rma)
+normal.d1.rma<- eset1.d1.rma[,which(fl1==0)]
+tumor.d1.rma <- eset1.d1.rma[,which(fl1==1)]
+
+
+#calculate the intra group variance
+CV <- function(x) {
+  x.mean <- mean(x)
+  x.sd <- sd(x)
+  (x.sd/x.mean)
+}
+
+#cv of plier method 
+normal1.cv.plier <- apply(normal.d1.plier, 2, CV)
+tumor1.cv.plier <- apply(tumor.d1.plier,2,CV)
+
+
+#cv of rma method
+normal1.cv.rma <- apply(normal.d1.rma, 2, CV)
+tumor1.cv.rma <- apply(tumor.d1.rma,2, CV)
+
+
+data.cv.d1 <- list(PLIER.N = normal1.cv.plier, PLIER.T=tumor1.cv.plier ,RMA.N = normal1.cv.rma, RMA.T=tumor1.cv.rma)
+dev.new()
+boxplot(data.cv.d1,col=c("lightblue",0,"red",0),ylab= "coefficient of variance", main="PLIER vs. RMA, GSE71989", las=2)
+dev.off()
+ 
+eset3.d1 <- data.frame(normal.d1.plier, tumor.d1.plier)
+palette(value=rainbow(2))
+boxplot(eset3.d1, main=paste("Boxplot of processing data GSE15471 using PLIER"),col=c(rep("lightblue",8), rep(0,14)), outline=FALSE,las=2)
+
+
+```
+

@@ -1,0 +1,564 @@
+---
+title: 'ML_Project_Predicting Biomarker Genes of Pancreatic Ductal Adenocarcinoma
+  (PDAC) '
+author: "Xueyi Fan"
+date: "July 20, 2016"
+output: word_document
+---
+
+DSCS6030 Machine Learning
+#Download the data
+```{r}
+#download the data from GEO 
+library("GEOquery")
+setwd("/Users/fanxueyi/Documents/NEU Bioinformatics/DSCS6030_Intro_Data_Mining:Machine_Learing/Project/DATA")
+GEO_id_list <- c("GSE71989","GSE15471")
+for (i in GEO_id_list[1]){
+  getGEOSuppFiles(i)
+}
+
+#system call to uncompress the data
+try(system("ls"))
+for (i in GEO_id_list[1]){
+  call <- paste("tar zxvf ./", i, "/",i,"_RAW.tar -C ./",i, sep="")
+  try(system(call))
+}
+
+```
+
+
+#Pre-processing the affymetrix data of GSE15471
+```{r}
+library("affy")
+library("limma")
+library("genefilter")
+library("hgu133plus2.db")
+library("rgl")
+
+#GSE15471 deatset
+#Microdata need to do background correct and normalization, here I use RMA to normalized each dataset
+pathway <- paste("/Users/fanxueyi/Documents/NEU Bioinformatics/DSCS6030_Intro_Data_Mining:Machine_Learing/Project/DATA/","GSE15471",sep="")
+setwd(pathway)
+data2 <- ReadAffy()
+eset.d2<- exprs(data2)
+annotation(data2)
+
+
+#log-scale transform data
+qx <- as.numeric(quantile(eset.d2, c(0., 0.25, 0.5, 0.75, 0.99, 1.0), na.rm=T))
+LogC <- (qx[5] > 100) ||
+  (qx[6]-qx[1] > 50 && qx[2] > 0) ||
+  (qx[2] > 0 && qx[2] < 1 && qx[4] > 1 && qx[4] < 2)
+if (LogC) { eset.d2[which(eset.d2 <= 0)] <- NaN
+exprs(data2) <- log2(eset.d2) }
+data2.rma <- rma(data2)
+
+#factor: 0 stands for normal tissue, 1 stands for tumor
+gsms.d2 <- paste0("00000000000000000000000000000000000000011111111111",
+        "1111111111111111111111111111")
+sml.d2 <- c()
+for (i in 1:nchar(gsms.d2)) { sml.d2[i] <- substr(gsms.d2,i,i) }
+fl2 <- as.factor(sml.d2)
+
+#reorganize the expression data
+fl2 <- as.factor(c(rep(0,39),rep(1,39)))
+eset2.d2<- exprs(data2.rma)
+head(eset2.d2)
+normal.d2<- eset2.d2[,which(fl2==0)]
+tumor.d2 <- eset2.d2[,which(fl2==1)]
+eset3.d2 <- data.frame(normal.d2, tumor.d2)
+
+boxplot(eset3.d2, main=paste("Boxplot of processing data GSE15471"), col=c(rep(1,39), rep(0,39)),outline=FALSE,las=2)
+
+#get fold change data 
+fl2.d2 <- factor(fl2, levels = c(0,1),labels=c("control","tumor"))
+design.ma <- model.matrix(~fl2.d2)
+fit2.d2<-lmFit(eset3.d2, design.ma)
+fit2 <- eBayes(fit2.d2)
+cont.ma <- makeContrasts(control-tumor, levels=fl2.d2)
+fit2_cont <- contrasts.fit(fit2,cont.ma)
+fit2_cont <- eBayes(fit2_cont)
+d2.fc <- topTable(fit2_cont,number= 54675,adjust.method = "fdr")
+head(d2.fc)
+
+#filter different expression genes
+f1.d2 <- d2.fc$adj.P.Val <0.05
+f2.d2 <- abs(d2.fc$logFC) >=2
+f3.d2 <- f1.d2&f2.d2
+dataset.2.selected <- eset3.d2[f3.d2,]
+
+f4.d2 <- function(x) {shapiro.test(x)$p.value > 0.05}
+f5.d2 <- function(x) {(sqrt(10)* abs(mean(x))/sd(x) > qt(0.975,9))}
+sel1.d2 <- genefilter(dataset.2.selected[, fl2=="tumor"], f5.d2)
+sel2.d2 <- genefilter(dataset.2.selected[, fl2=="control"], f5.d2)
+sel3.d2 <- genefilter(dataset.2.selected, f4.d2)
+sel4.d2 <- sel1.d2&sel2.d2&sel3.d2
+dataset.2.selected <- dataset.2.selected[sel4.d2,]
+dim(dataset.2.selected)
+
+
+#venn diagram 
+x1.d2 <- apply(cbind(f1.d2,f2.d2), 2, as.integer)
+vc1.d2 <- vennCounts(x1.d2,include="both")
+vennDiagram(vc1.d2, main="GSE15471 Venn Graph")
+
+
+x2.d2 <- apply(cbind(sel1.d2,sel2.d2,sel3.d2), 2, as.integer)
+vc2.d2 <- vennCounts(x2.d2,include="both")
+vennDiagram(vc2.d2, main="GSE15471 Venn Graph")
+
+#PCA and its plot
+d2.selected.pca <- princomp(dataset.2.selected, cor=T, scores = T)
+plot(d2.selected.pca, type="l", main="GSE15471 PCA Plot")
+plot3d(d2.selected.pca$loadings[,1:3], col=as.numeric(fl2.d2))
+#biplot(d2.selected.pca)
+
+```
+
+#Pre-processing the affymetrix data of GSE71989
+```{r}
+
+#GSE71989 deatset
+#Microdata need to do background correct and normalization, here I use RMA to normalized each dataset
+pathway <- paste("/Users/fanxueyi/Documents/NEU Bioinformatics/DSCS6030_Intro_Data_Mining:Machine_Learing/Project/DATA/","GSE71989",sep="")
+setwd(pathway)
+data1 <- ReadAffy()
+eset<- exprs(data1)
+annotation(data1)
+
+#log-scale transform data
+qx <- as.numeric(quantile(eset, c(0., 0.25, 0.5, 0.75, 0.99, 1.0), na.rm=T))
+LogC <- (qx[5] > 100) ||
+  (qx[6]-qx[1] > 50 && qx[2] > 0) ||
+  (qx[2] > 0 && qx[2] < 1 && qx[4] > 1 && qx[4] < 2)
+if (LogC) { eset[which(eset <= 0)] <- NaN
+exprs(data1) <- log2(eset) }
+data1.rma <- rma(data1)
+
+
+head(exprs(data2))
+#factor: 0 stands for normal tissue, 1 stands for tumor
+gsms <- paste0("0000000011111111111111")
+sml <- c()
+for (i in 1:nchar(gsms)) { sml[i] <- substr(gsms,i,i) }
+fl1 <- as.factor(sml)
+
+#reorganize the expression data
+fl1 <- as.factor(c(rep(0,8),rep(1,14)))
+eset2<- exprs(data1.rma)
+head(eset2)
+normal<- eset2[,which(fl1==0)]
+tumor <- eset2[,which(fl1==1)]
+eset3 <- data.frame(normal, tumor)
+boxplot(eset3, main=paste("Boxplot of processing data GSE71989"), col=c(rep(1,8), rep(0,14)),outline=FALSE,las=2)
+
+#get fold change data 
+fl1.d1 <- factor(fl1, levels = c(0,1),labels=c("control","tumor"))
+design.ma <- model.matrix(~fl1.d1)
+fit1 <-lmFit(eset2, design.ma)
+fit1 <- eBayes(fit1)
+cont.ma <- makeContrasts(control-tumor, levels=fl1.d1)
+fit1_cont <- contrasts.fit(fit1,cont.ma)
+fit1_cont <- eBayes(fit1_cont)
+d1.fc <- topTable(fit1_cont,number= 54675,adjust.method = "fdr")
+head(d1.fc)
+
+#filter different expression genes
+f1 <- d1.fc$adj.P.Val <0.05
+f2 <- abs(d1.fc$logFC) >=2
+f3 <- f1&f2
+dataset.1.selected <- eset3[f3,]
+
+
+f4.d1 <- function(x) {shapiro.test(x)$p.value > 0.05}
+f5.d1 <- function(x) {(sqrt(10)* abs(mean(x))/sd(x) > qt(0.975,9))}
+sel1.d1 <- genefilter(dataset.1.selected[, fl1.d1=="tumor"], f5.d1)
+sel2.d1 <- genefilter(dataset.1.selected[, fl1.d1=="control"], f5.d1)
+sel3.d1 <- genefilter(dataset.1.selected, f4.d1)
+sel4.d1 <- sel1.d1&sel2.d1&sel3.d1
+dataset.1.selected <- dataset.1.selected[sel4.d1,]
+dim(dataset.1.selected)
+
+#venn diagram 
+x <- apply(cbind(f1,f2), 2, as.integer)
+vc <- vennCounts(x,include="both")
+vennDiagram(vc, main="GSE71989 Venn Graph")
+
+x2.d1 <- apply(cbind(sel1.d1,sel2.d1,sel3.d1), 2, as.integer)
+vc2.d1 <- vennCounts(x2.d1,include="both")
+vennDiagram(vc2.d1, main="GSE71989 Venn Graph")
+
+#PCA and its plot
+d1.selected.pca <- princomp(dataset.1.selected, cor=T, scores = T)
+plot(d1.selected.pca, type="l",main="GSE71989 PCA Plot")
+plot3d(d1.selected.pca$loadings[,1:3], col=as.numeric(fl1.d1))
+
+
+
+```
+
+#Choose the same gene set of these two datasets
+```{r}
+head(dataset.1.selected)
+head(dataset.2.selected)
+
+name.d1 <- row.names(dataset.1.selected)
+name.d2 <- row.names(dataset.2.selected)
+
+same.d1<- name.d1 %in% name.d2
+same.d2<- name.d2 %in% name.d1
+
+table(same.d1)
+table(same.d2)
+
+d1.same <- dataset.1.selected[which(same.d1==TRUE),]
+d2.same <- dataset.2.selected[which(same.d2==TRUE),]
+
+library(Biobase)
+library(MergeMaid)
+library("MAMA")
+library(RankProd)
+
+#create MetaArray object
+d1.spl <- data.frame(metastasis=fl1)
+row.names(d1.spl) <- colnames(d1.same)
+d2.spl <- data.frame(metastasis=fl2)
+row.names(d2.spl) <- colnames(d2.same)
+merged <- new("MetaArray", GEDM= list(d1.same,d2.same), clinical = list(d1.spl,d2.spl),datanames=c("data1", "data2"))
+
+
+#use method combine p-values
+pval<- metaMA(merged,varname="metastasis", which="pval")
+length(pval$Meta)
+
+#use RankProb method 
+rp<- RankProduct(merged, varname= "metastasis", plot=T, rand=123, cutoff=0.05, num.perm=100, gene.names = rownames(GEDM(merged))[[1]])
+up <- rp$Table1
+down <- rp$Table2
+
+head(up)
+head(down)
+
+#get final differential expression genes
+
+up.d1.exprs <- d1.same[up[,1],]
+up.d2.exprs<- d2.same[up[,1],]
+down.d1.exprs <- d1.same[down[,1],]
+down.d2.exprs <- d2.same[down[,1],]
+
+#add new column (symbol) to expression data
+
+get_gene_name <- function(x) {
+  if (is.character(get(x,env=hgu133plus2SYMBOL))){
+    return(get(x,env=hgu133plus2SYMBOL))
+    }
+  else{
+    return(NA)
+  }
+}
+up.gene.name <- lapply(rownames(up),get_gene_name)
+down.gene.name <- lapply(rownames(down),get_gene_name)
+
+up.gene.name <- unlist(up.gene.name)
+down.gene.name <- unlist(down.gene.name)
+up.d1.exprs$symbol <- up.gene.name
+up.d2.exprs$symbol <- up.gene.name
+down.d1.exprs$symbol <-down.gene.name
+down.d2.exprs$symbol <-down.gene.name
+
+#plot heatmap with top 100 up-regulated genes and top 100 down-regulated genes based on 
+up.100 <- head(up[order(up[,3]),],100)
+down.100 <- head(down[order(down[,3],decreasing=T),],100)
+up.d1.100.exprs <- d1.same[up.100[,1],]
+up.d2.100.exprs<- d2.same[up.100[,1],]
+down.d1.100.exprs <- d1.same[down.100[,1],]
+down.d2.100.exprs <- d2.same[down.100[,1],]
+
+up.gene.100.name <- lapply(rownames(up.100),get_gene_name)
+down.gene.100.name <- lapply(rownames(down.100),get_gene_name)
+
+up.gene.100.name <- unlist(up.gene.100.name)
+down.gene.100.name <- unlist(down.gene.100.name)
+up.d1.100.exprs$symbol <- up.gene.100.name
+up.d2.100.exprs$symbol <- up.gene.100.name
+down.d1.100.exprs$symbol <-down.gene.100.name
+down.d2.100.exprs$symbol <-down.gene.100.name
+
+d1.100.data <- rbind(up.d1.100.exprs,down.d1.100.exprs)
+d2.100.data <- rbind(up.d2.100.exprs,down.d2.100.exprs)
+ 
+gene.100.list<- c(up.gene.100.name,down.gene.100.name)
+
+#get fold change data of two datasets
+fl1.d1 <- factor(fl1, levels = c(0,1),labels=c("control","tumor"))
+design.ma <- model.matrix(~fl1.d1)
+fit1 <-lmFit(d1.100.data[,-23], design.ma)
+fit1 <- eBayes(fit1)
+cont.ma <- makeContrasts(control-tumor, levels=fl1.d1)
+fit1_cont <- contrasts.fit(fit1,cont.ma)
+fit1_cont <- eBayes(fit1_cont)
+d1.fc <- topTable(fit1_cont, number=200, adjust.method = "fdr")
+
+
+fl2.d2 <- fl2
+design.ma <- model.matrix(~fl2.d2)
+dim(design.ma)
+dim(d2.100.data)
+fit2 <-lmFit(d2.100.data[,-79], design.ma)
+fit2 <- eBayes(fit2)
+cont.ma2 <- makeContrasts(control-tumor, levels=fl2.d2)
+fit2_cont <- contrasts.fit(fit2,cont.ma2)
+fit2_cont <- eBayes(fit2_cont)
+d2.fc <- topTable(fit2_cont, number=200, adjust.method = "fdr")
+
+d1.fc$rowname<- rownames(d1.fc)
+d2.fc$rowname<- rownames(d2.fc)
+
+d1.fc.new <- data.frame(d1.fc[,1], probe_name=d1.fc$rowname)
+d2.fc.new <- data.frame(d2.fc[,1], probe_name=d2.fc$rowname)
+merge.d1.d2.fc <- merge(d1.fc.new,d2.fc.new, by="probe_name")
+heatmap_data <- data.frame(merge.d1.d2.fc[,2:3])
+rownames(heatmap_data) <- merge.d1.d2.fc$rowname
+heatmap_data_gene_name <- lapply(rownames(up.100),get_gene_name)
+heatmap_data$symbol <- unlist(heatmap_data_gene_name)
+
+
+plot_data <- as.matrix(heatmap_data[,1:2])
+plot_data <- apply(plot_data,2,as.numeric)
+
+library("gplots")
+heatmap.2(plot_data, col=redgreen(75), scale= "none", cexRow = 0.5,cexCol = 1,labRow=gene.100.list, key=T, keysize=1.5, key.title = "color key", symkey=F, symbreaks = T, density.info="none", trace="none",dendrogram = "none", labCol=c( "GSE71989","GSE15471"))
+
+```
+
+
+#DATA Mining
+```{r}
+#analysis the difficial expression genes
+#combine d1, d2 expression data
+
+up.d1.exprs$rowname <- rownames(up)
+up.d2.exprs$rowname <- rownames(up)
+all.up <- merge(up.d1.exprs[,-23], up.d2.exprs[,-79], by="rowname")
+
+down.d1.exprs$rowname <- rownames(down)
+down.d2.exprs$rowname <- rownames(down)
+all.down <- merge(down.d1.exprs[,-23], down.d2.exprs[,-79], by="rowname")
+all<- rbind.data.frame(all.up,all.down)
+head(all)
+dim(all)
+all.gene.name <- lapply(all$rowname, get_gene_name)
+all$symbol<- all.gene.name
+all.factor <- factor(c(fl1.d1, fl2.d2), labels = c("control", "tumor"))
+
+
+#cluster the differential expression data
+
+#Hierarchical clustering 
+all.hclust <- hclust(d=dist(t(all[,c(-1,-102)])),method="single")
+all.hclust.2<- cutree(all.hclust,2)
+length(all.hclust.2)
+length(all.factor)
+cm <- table(all.hclust.2, all.factor)
+cm
+plot(cm, main="Hierarchical Clustering")
+plot(all.hclust, label=F)
+
+#K-medoids clustering 
+library("cluster")
+all.pam <- pam(t(all[,c(-1,-102)]),2 )
+cm2 <- table(all.pam$clustering, all.factor)
+cm2
+plot(cm2, main="2-medoids Clstering")
+
+```
+
+#classification using SVM-RFE
+```{r}
+library(e1071)
+library(caret)
+
+################################################
+# Feature Ranking with SVM-RFE
+################################################
+svmrfeFeatureRanking = function(x,y){
+    n = ncol(x)
+    
+    survivingFeaturesIndexes = seq(1:n)
+    featureRankedList = vector(length=n)
+    rankedFeatureIndex = n
+    
+    while(length(survivingFeaturesIndexes)>0){
+        #train the support vector machine
+        svmModel = svm(x[, survivingFeaturesIndexes], y, cost = 10, cachesize=500,  scale=F, type="C-classification", kernel="linear" )
+        
+        #compute the weight vector
+        w = t(svmModel$coefs)%*%svmModel$SV
+        
+        #compute ranking criteria
+        rankingCriteria = w * w
+        
+        #rank the features
+        ranking = sort(rankingCriteria, index.return = TRUE)$ix
+        
+        #update feature ranked list
+        featureRankedList[rankedFeatureIndex] = survivingFeaturesIndexes[ranking[1]]
+        rankedFeatureIndex = rankedFeatureIndex - 1
+        
+        #eliminate the feature with smallest ranking criterion
+        (survivingFeaturesIndexes = survivingFeaturesIndexes[-ranking[1]])
+        
+    }
+    
+    return (featureRankedList)
+}
+
+featureRankedList <- svmrfeFeatureRanking(t(all[,c(-1,-102)]),all.factor)
+
+#train a SVM with different N most relevant features (N=50,500,1000)
+
+ranklist.50 <- featureRankedList[1:50]
+ranklist.500 <- featureRankedList[1:500]
+ranklist.1000 <- featureRankedList[1:1000]
+
+#using 50 fold Cross-validation for ranklist.30
+all.t <- t(all[,c(-1,-102)])
+all.50 <- all.t[,ranklist.50]
+n<- dim(all.50)[1]
+index <- 1:n
+K<-50
+flds <- createFolds(index, k=K)
+mcr.cv.raw <- rep(NA, K)
+sen.cv.raw <- rep(NA,K)
+spe.cv.raw <- rep(NA,K)
+for (i in (1:K)){
+  testID <- flds[[i]]
+  data.train <- all.50[-testID,]
+  data.test <- all.50[testID,]
+  data.svm <- svm(data.train, all.factor[-testID], kernel="linear")
+  data.pred <- predict(data.svm, newdata=data.test)
+  mcr.cv.raw[i] <- mean(data.pred != all.factor[testID])
+  sen.cv.raw[i] <- sum(data.pred == "tumor" & all.factor[testID]=="tumor")/sum(all.factor[testID]=="tumor")
+  spe.cv.raw[i] <-  sum(data.pred == "control" & all.factor[testID]=="control")/sum(all.factor[testID]=="control")
+}
+
+mcr.cv.50 <- mean(mcr.cv.raw)
+sen.cv.50 <- mean(na.omit(sen.cv.raw))
+spe.cv.50 <- mean(na.omit(spe.cv.raw))
+
+#using 50 fold Cross-validation for ranklist.500
+all.t <- t(all[,c(-1,-102)])
+all.500 <- all.t[,ranklist.500]
+n<- dim(all.500)[1]
+index <- 1:n
+K<-50
+flds <- createFolds(index, k=K)
+mcr.cv.raw <- rep(NA, K)
+sen.cv.raw <- rep(NA,K)
+spe.cv.raw <- rep(NA,K)
+for (i in (1:K)){
+  testID <- flds[[i]]
+  data.train <- all.500[-testID,]
+  data.test <- all.500[testID,]
+  data.svm <- svm(data.train, all.factor[-testID], cost=10, kernel="linear")
+  data.pred <- predict(data.svm, newdata=data.test)
+  mcr.cv.raw[i] <- mean(data.pred != all.factor[testID])
+  sen.cv.raw[i] <- sum(data.pred == "tumor" & all.factor[testID]=="tumor")/sum(all.factor[testID]=="tumor")
+  spe.cv.raw[i] <-  sum(data.pred == "control" & all.factor[testID]=="control")/sum(all.factor[testID]=="control")
+}
+mcr.cv.500 <- mean(mcr.cv.raw)
+sen.cv.500 <- mean(na.omit(sen.cv.raw))
+spe.cv.500 <- mean(na.omit(spe.cv.raw))
+
+
+#using 50 fold Cross-validation for ranklist.1000
+all.t <- t(all[,c(-1,-102)])
+all.1000 <- all.t[,ranklist.1000]
+n<- dim(all.1000)[1]
+index <- 1:n
+K<-50
+flds <- createFolds(index, k=K)
+mcr.cv.raw <- rep(NA, K)
+sen.cv.raw <- rep(NA,K)
+spe.cv.raw <- rep(NA,K)
+for (i in (1:K)){
+  testID <- flds[[i]]
+  data.train <- all.1000[-testID,]
+  data.test <- all.1000[testID,]
+  data.svm <- svm(data.train, all.factor[-testID], cost=10, kernel="linear")
+  data.pred <- predict(data.svm, newdata=data.test)
+  mcr.cv.raw[i] <- mean(data.pred != all.factor[testID])
+  sen.cv.raw[i] <- sum(data.pred == "tumor" & all.factor[testID]=="tumor")/sum(all.factor[testID]=="tumor")
+  spe.cv.raw[i] <-  sum(data.pred == "control" & all.factor[testID]=="control")/sum(all.factor[testID]=="control")
+}
+
+mcr.cv.1000 <- mean(mcr.cv.raw)
+sen.cv.1000 <- mean(na.omit(sen.cv.raw))
+spe.cv.1000 <- mean(na.omit(spe.cv.raw))
+
+mcr.cv.50
+sen.cv.50
+spe.cv.50
+
+mcr.cv.500
+sen.cv.500
+spe.cv.500
+
+mcr.cv.1000
+sen.cv.1000
+spe.cv.1000
+
+dim(all)
+ranklist.50
+final_genes <- data.frame(probe_name = unlist(all$rowname[ranklist.50]), Gene_name = unlist(all.gene.name[ranklist.50]))
+final_genes <- na.omit(final_genes)
+is_up <- final_genes$probe_name %in% all.up$rowname
+down_index <- which(is_up == F)
+final_up <- final_genes[-down_index,]
+final_down <- final_genes[down_index,] 
+
+```
+
+Finnally I identify 50 genes which is related to PDCA.
+
+
+```{r}
+
+#detect the pathway where the genes act functions
+library(SPIA)
+library("KEGG.db")
+
+get_pathway <- function(x){
+  if (is.character(get(x,env=hgu133plus2PATH))){
+    return(get(x,env=hgu133plus2PATH))
+  }
+  else{
+    return(NA)
+  }
+}
+length(test)  
+for (i in test){
+  print(get_pathway(i))
+}
+
+pathID<- lapply(as.vector(final_genes$probe_name),get_pathway)  
+pathID <- as.matrix(table(unlist(pathID)))
+pathID <- rownames(pathID)
+pathID
+getPathName <- function(x){
+  get(x, env=KEGGPATHID2NAME)
+}
+pathName <- unlist(lapply(pathID, getPathName))
+pathName
+
+
+
+```
+
+
+
+
+
+
+
+
